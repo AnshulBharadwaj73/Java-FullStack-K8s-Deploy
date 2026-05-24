@@ -1,0 +1,8 @@
+*.tfstate
+*.tfstate.backup
+.terraform/
+.terraform.lock.hcl
+credentials-*.txt
+*.tfvars          # if any tfvars contain secrets
+override.tf
+override.tf.json

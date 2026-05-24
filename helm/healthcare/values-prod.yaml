@@ -1,0 +1,35 @@
+# Production EKS — image repository and tag injected by Jenkins (--set image.repository=...).
+image:
+  repository: ""
+  pullPolicy: IfNotPresent
+
+mongodb:
+  storageClassName: gp3
+  storageSize: 20Gi
+
+ui:
+  service:
+    type: ClusterIP   # ALB Ingress reaches it directly; no NodePort needed
+
+ingress:
+  className: alb
+  host: healthcare.example.com
+  annotations:
+    kubernetes.io/ingress.class: alb
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP":80},{"HTTPS":443}]'
+    # alb.ingress.kubernetes.io/certificate-arn: arn:aws:acm:us-east-1:123456789012:certificate/xxx
+
+# Bumped resources for production-like load
+springDefaults:
+  resources:
+    requests:
+      memory: "512Mi"
+      cpu: "200m"
+    limits:
+      memory: "1Gi"
+      cpu: "1000m"
+
+# In real production: don't ship secrets via values — use External Secrets / IRSA-backed lookups.
+# These keys must still exist; override at deploy time with --set or sealed-secrets.

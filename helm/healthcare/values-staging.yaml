@@ -1,0 +1,30 @@
+# Staging EKS — production-like, internal-only, smaller scale
+image:
+  repository: ""   # set by Jenkins
+  pullPolicy: IfNotPresent
+
+mongodb:
+  storageClassName: gp3
+  storageSize: 20Gi
+
+ui:
+  service:
+    type: ClusterIP
+
+ingress:
+  className: alb
+  host: staging.healthcare.example.com
+  annotations:
+    alb.ingress.kubernetes.io/scheme: internal
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP":80},{"HTTPS":443}]'
+    # alb.ingress.kubernetes.io/certificate-arn: arn:aws:acm:us-east-1:<acct>:certificate/<staging-cert>
+
+springDefaults:
+  resources:
+    requests:
+      memory: "512Mi"
+      cpu: "200m"
+    limits:
+      memory: "1Gi"
+      cpu: "1000m"

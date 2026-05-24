@@ -1,0 +1,16 @@
+image:
+  pullPolicy: IfNotPresent
+  # tag inherits from values.yaml ("latest" for Spring Boot services).
+  # UI overrides separately via ui.tag.
+
+mongodb:
+  storageClassName: ""
+
+ui:
+  service:
+    type: NodePort
+    nodePort: 31000
+
+ingress:
+  className: nginx
+  host: healthcare.local

@@ -1,0 +1,6 @@
+apiVersion: v2
+name: healthcare
+description: Smart Healthcare microservices stack — MongoDB, Kafka, 7 Spring Boot services, UI, Ingress.
+type: application
+version: 0.1.0
+appVersion: "1.0"

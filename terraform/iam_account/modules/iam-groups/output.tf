@@ -1,0 +1,9 @@
+output "group_name" {
+  description = "IAM group name"
+  value       = aws_iam_group.this.name
+}
+
+output "group_arn" {
+  description = "IAM group ARN"
+  value       = aws_iam_group.this.arn
+}

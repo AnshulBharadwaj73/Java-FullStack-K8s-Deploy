@@ -51,3 +51,8 @@ notification-service/.mvn/wrapper/maven-wrapper.jar
 
 .env
 
+Jenkinsfile
+
+.github/workflows/ci-cd.yml
+
+Dockerfile.dev

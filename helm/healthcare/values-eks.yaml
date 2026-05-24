@@ -1,0 +1,49 @@
+# Generic EKS overrides — apply on top of values.yaml.
+# For per-env, stack: -f values-eks.yaml -f values-{dev,staging,prod}.yaml
+
+image:
+  # Set to your AWS account's ECR registry. Override with --set image.repository=... in CI.
+  repository: "035809508418.dkr.ecr.us-east-1.amazonaws.com"
+  tag: "1.1"
+  pullPolicy: IfNotPresent
+
+mongodb:
+  storageClassName: gp3
+  storageSize: 20Gi
+
+ui:
+  service:
+    type: LoadBalancer   # ALB Ingress reaches it directly; no NodePort needed
+  tag: "1.1"
+
+ingress:
+  className: alb
+  host: healthcare.example.com    # <-- change to your real domain
+  annotations:
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP":80},{"HTTPS":443}]'
+    # Spring Boot Actuator health endpoint — applied to all backend target groups
+    alb.ingress.kubernetes.io/healthcheck-path: /actuator/health
+    alb.ingress.kubernetes.io/healthcheck-interval-seconds: "15"
+    alb.ingress.kubernetes.io/healthcheck-timeout-seconds: "5"
+    alb.ingress.kubernetes.io/healthy-threshold-count: "2"
+    alb.ingress.kubernetes.io/unhealthy-threshold-count: "3"
+    alb.ingress.kubernetes.io/success-codes: "200-399"
+    # Uncomment after you've requested an ACM cert for the host above:
+    # alb.ingress.kubernetes.io/certificate-arn: arn:aws:acm:us-east-1:035809508418:certificate/<id>
+    # alb.ingress.kubernetes.io/ssl-redirect: "443"
+
+# Production-like resource baseline (override in values-dev/staging/prod if needed)
+springDefaults:
+  resources:
+    requests:
+      memory: "512Mi"
+      cpu: "200m"
+    limits:
+      memory: "1Gi"
+      cpu: "1000m"
+
+# Don't ship real secrets here — pass --set secret.<key>=... at install time,
+# or wire External Secrets Operator. The keys below still need to exist for
+# the Secret template to render.
