@@ -1,4 +1,4 @@
-This is a FullStack Java K8s app deploy on minikube
+This is a FullStack Java K8s app deploy on minikube and eks
 Note: the App is taken from hungarycoders and deployment is done my me.
 
 # Healthcare Microservices Project by HungryCoders
