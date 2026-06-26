@@ -1,0 +1,35 @@
+# Monitoring stack — Prometheus, Alertmanager, Grafana + RBAC.
+# Lives in its own ArgoCD Application so its sync state is tracked separately
+# from the app workloads.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: monitoring-app
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: healthcare
+
+  source:
+    repoURL: https://github.com/AnshulBharadwaj73/Java-FullStack-K8s-Deploy.git
+    targetRevision: main
+    path: monitoring/k8s
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: monitoring
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 3m

@@ -1,0 +1,42 @@
+# An ArgoCD AppProject groups related Applications and restricts what they can
+# touch. Without a Project, every Application has cluster-admin-like reach;
+# with a Project, you can scope which namespaces / kinds an Application is
+# allowed to manage.
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: healthcare
+  namespace: argocd
+  # Keep finalizer so deleting the project doesn't orphan its Applications.
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  description: Smart Healthcare System — apps + monitoring
+
+  # Only sync manifests from THIS repo.
+  sourceRepos:
+    - https://github.com/AnshulBharadwaj73/Java-FullStack-K8s-Deploy.git
+
+  # Only deploy into these namespaces in the current ("in-cluster") cluster.
+  destinations:
+    - namespace: healthcare
+      server: https://kubernetes.default.svc
+    - namespace: monitoring
+      server: https://kubernetes.default.svc
+    - namespace: argocd
+      server: https://kubernetes.default.svc
+
+  # Cluster-scoped kinds Applications under this project may create
+  # (Namespace + RBAC are the only ones needed for this repo).
+  clusterResourceWhitelist:
+    - group: ""
+      kind: Namespace
+    - group: rbac.authorization.k8s.io
+      kind: ClusterRole
+    - group: rbac.authorization.k8s.io
+      kind: ClusterRoleBinding
+
+  # Allow any namespaced kind (Deployments, Services, ConfigMaps, …).
+  namespaceResourceWhitelist:
+    - group: "*"
+      kind: "*"

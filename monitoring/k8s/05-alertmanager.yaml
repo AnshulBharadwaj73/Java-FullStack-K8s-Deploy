@@ -1,0 +1,115 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: pagerduty-routing-keys
+  namespace: monitoring
+type: Opaque
+stringData:
+  # Replace these with real PagerDuty integration keys (Events API v2).
+  # Or create from CLI:
+  #   kubectl -n monitoring create secret generic pagerduty-routing-keys \
+  #     --from-literal=default=xxxx --from-literal=critical=xxxx --from-literal=warning=xxxx \
+  #     --dry-run=client -o yaml | kubectl apply -f -
+  default: changeme
+  critical: changeme
+  warning: changeme
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: alertmanager-config
+  namespace: monitoring
+data:
+  alertmanager.yml: |
+    global:
+      resolve_timeout: 5m
+      pagerduty_url: https://events.pagerduty.com/v2/enqueue
+
+    route:
+      receiver: null
+      group_by: ["alertname", "service", "severity"]
+      group_wait: 30s
+      group_interval: 5m
+      repeat_interval: 4h
+      routes:
+        - matchers: [severity = "critical"]
+          receiver: null
+          continue: true
+        - matchers: [severity = "warning"]
+          receiver: null
+
+    inhibit_rules:
+      - source_matchers: [severity = "critical"]
+        target_matchers: [severity = "warning"]
+        equal: ["alertname", "service"]
+
+    receivers:
+      - name: pagerduty-default
+        pagerduty_configs:
+          - routing_key: ${PAGERDUTY_ROUTING_KEY}
+            description: "{{ .CommonAnnotations.summary }}"
+      - name: pagerduty-critical
+        pagerduty_configs:
+          - routing_key: ${PAGERDUTY_ROUTING_KEY_CRITICAL}
+            severity: critical
+            description: "[CRITICAL] {{ .CommonAnnotations.summary }}"
+      - name: pagerduty-warning
+        pagerduty_configs:
+          - routing_key: ${PAGERDUTY_ROUTING_KEY_WARNING}
+            severity: warning
+            description: "[WARNING] {{ .CommonAnnotations.summary }}"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: alertmanager
+  namespace: monitoring
+  labels: { app: alertmanager }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: alertmanager }
+  template:
+    metadata:
+      labels: { app: alertmanager }
+    spec:
+      containers:
+        - name: alertmanager
+          image: prom/alertmanager:v0.27.0
+          args:
+            - --config.file=/etc/alertmanager/alertmanager.yml
+            - --storage.path=/alertmanager
+          ports: [{ containerPort: 9093 }]
+          env:
+            - name: PAGERDUTY_ROUTING_KEY
+              valueFrom: { secretKeyRef: { name: pagerduty-routing-keys, key: default } }
+            - name: PAGERDUTY_ROUTING_KEY_CRITICAL
+              valueFrom: { secretKeyRef: { name: pagerduty-routing-keys, key: critical } }
+            - name: PAGERDUTY_ROUTING_KEY_WARNING
+              valueFrom: { secretKeyRef: { name: pagerduty-routing-keys, key: warning } }
+          resources:
+            requests: { cpu: 50m, memory: 64Mi }
+            limits: { cpu: 200m, memory: 256Mi }
+          volumeMounts:
+            - { name: config,  mountPath: /etc/alertmanager/alertmanager.yml, subPath: alertmanager.yml }
+            - { name: storage, mountPath: /alertmanager }
+          readinessProbe:
+            httpGet: { path: /-/ready, port: 9093 }
+            initialDelaySeconds: 10
+      volumes:
+        - name: config
+          configMap: { name: alertmanager-config }
+        - name: storage
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: alertmanager
+  namespace: monitoring
+  labels: { app: alertmanager }
+spec:
+  type: ClusterIP
+  selector: { app: alertmanager }
+  ports:
+    - { name: http, port: 9093, targetPort: 9093 }

@@ -1,0 +1,74 @@
+# Same Helm-based Application as healthcare-helm-app.yaml, but with annotations
+# that tell ArgoCD Image Updater to:
+#   1. Poll each service's image repo every interval (default 2 min)
+#   2. Pick the highest tag matching the policy below
+#   3. Commit a tag bump back to Git so ArgoCD then syncs the new tag
+#
+# IMPORTANT: enable ONE — either healthcare-helm-app.yaml OR this file. Not both.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: healthcare-helm
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+  annotations:
+    # ----- which images to track -----
+    # alias=full-image-ref (no tag here; tag is governed by the policy below)
+    argocd-image-updater.argoproj.io/image-list: |
+      gateway=anshul9589/shsm-gateway-service,
+      auth=anshul9589/shsm-auth-service,
+      doctor=anshul9589/shsm-doctor-service,
+      patient=anshul9589/shsm-patient-service,
+      appointment=anshul9589/shsm-appointment-service,
+      notification=anshul9589/shsm-notification-service,
+      admin=anshul9589/shsm-admin-service
+
+    # ----- update strategy per alias -----
+    # `digest`  → re-pull when the digest under :latest changes (works with :latest)
+    # `semver`  → only consider valid semver tags (recommended for prod)
+    # `newest-build` → datetime-sortable tag like 20260602-091500
+    argocd-image-updater.argoproj.io/gateway.update-strategy:      digest
+    argocd-image-updater.argoproj.io/auth.update-strategy:         digest
+    argocd-image-updater.argoproj.io/doctor.update-strategy:       digest
+    argocd-image-updater.argoproj.io/patient.update-strategy:      digest
+    argocd-image-updater.argoproj.io/appointment.update-strategy:  digest
+    argocd-image-updater.argoproj.io/notification.update-strategy: digest
+    argocd-image-updater.argoproj.io/admin.update-strategy:        digest
+
+    # Constrain which tags are considered (only if you switch to semver/newest-build).
+    # argocd-image-updater.argoproj.io/auth.allow-tags: regexp:^[0-9a-f]{7,40}$  # git short sha
+
+    # ----- how to apply the new tag -----
+    # `helm` → bumps the value at `image.tag` in the rendered values.
+    # The Helm chart in helm/healthcare reads a per-service `image.tag` value.
+    argocd-image-updater.argoproj.io/write-back-method: git
+    argocd-image-updater.argoproj.io/git-branch:        main
+    argocd-image-updater.argoproj.io/write-back-target: helmvalues:helm/healthcare/values-eks.yaml
+spec:
+  project: healthcare
+
+  source:
+    repoURL: https://github.com/AnshulBharadwaj73/Java-FullStack-K8s-Deploy.git
+    targetRevision: main
+    path: helm/healthcare
+    helm:
+      releaseName: healthcare
+      valueFiles:
+        - values.yaml
+        - values-eks.yaml
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: healthcare
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+    retry:
+      limit: 5
+      backoff: { duration: 10s, factor: 2, maxDuration: 3m }

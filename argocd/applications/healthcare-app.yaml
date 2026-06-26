@@ -1,0 +1,48 @@
+# Application = "watch this folder in Git, sync to this cluster".
+# This one tracks the seven Spring Boot services + supporting infra in k8s/.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: healthcare-app
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: healthcare
+
+  source:
+    repoURL: https://github.com/AnshulBharadwaj73/Java-FullStack-K8s-Deploy.git
+    targetRevision: main           # or: a specific tag like v1.2.0
+    path: k8s                      # folder ArgoCD will apply
+    directory:
+      recurse: false               # only top-level *.yaml; flip to true if you nest
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: healthcare
+
+  syncPolicy:
+    automated:
+      prune: true                  # delete cluster resources removed from Git
+      selfHeal: true               # revert manual cluster edits back to Git
+      allowEmpty: false
+    syncOptions:
+      - CreateNamespace=true       # auto-create `healthcare` ns if missing
+      - PrunePropagationPolicy=foreground
+      - PruneLast=true
+      - ServerSideApply=true       # safer for CRD updates
+    retry:
+      limit: 5
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 3m
+
+  # Notice when fields managed by the cluster (replica counts auto-scaled by
+  # HPA, image tags rotated by Image Updater, etc.) drift from Git without
+  # marking the app OutOfSync.
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      jsonPointers:
+        - /spec/replicas

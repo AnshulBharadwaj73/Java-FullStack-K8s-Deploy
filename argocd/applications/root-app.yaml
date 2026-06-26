@@ -1,0 +1,32 @@
+# "App-of-apps" pattern — a single Application that points at the folder
+# containing the other Applications. Bootstrap this one and ArgoCD creates
+# healthcare-app + monitoring-app for you. After this, you never touch ArgoCD
+# again — every new Application is just a YAML file in argocd/applications/.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: root
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default     # the built-in default project; the AppProject above
+                       # cannot manage itself before it exists
+  source:
+    repoURL: https://github.com/AnshulBharadwaj73/Java-FullStack-K8s-Deploy.git
+    targetRevision: main
+    path: argocd       # ArgoCD picks up both projects/ and applications/
+    directory:
+      recurse: true
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true

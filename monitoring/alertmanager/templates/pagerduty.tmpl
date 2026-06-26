@@ -1,0 +1,9 @@
+{{ define "pagerduty.default.description" -}}
+[{{ .Status | toUpper }}{{ if eq .Status "firing" }}:{{ .Alerts.Firing | len }}{{ end }}]
+{{ .CommonLabels.alertname }} on {{ .CommonLabels.service }} ({{ .CommonLabels.environment }})
+{{ .CommonAnnotations.summary }}
+{{- end }}
+
+{{ define "pagerduty.default.clientURL" -}}
+http://alertmanager:9093/#/alerts
+{{- end }}

@@ -1,0 +1,41 @@
+# Alternative to healthcare-app.yaml — uses the Helm chart at helm/healthcare
+# instead of the raw manifests in k8s/. Use ONE OR THE OTHER, not both,
+# otherwise they'll fight over the same Deployments.
+#
+# Disabled by default (`syncPolicy.automated` removed). Rename or delete
+# `healthcare-app.yaml` first if you want to switch.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: healthcare-helm
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: healthcare
+
+  source:
+    repoURL: https://github.com/AnshulBharadwaj73/Java-FullStack-K8s-Deploy.git
+    targetRevision: main
+    path: helm/healthcare
+    helm:
+      releaseName: healthcare
+      valueFiles:
+        - values.yaml
+        # Pick the env-specific overrides for your cluster:
+        # - values-dev.yaml
+        # - values-eks.yaml
+        # - values-prod.yaml
+      # Inline value overrides (handy for image tags from CI):
+      # parameters:
+      #   - name: image.tag
+      #     value: 0fb854a
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: healthcare
+
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true

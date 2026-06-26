@@ -1,0 +1,117 @@
+# User-facing RBAC for the `healthcare` and `monitoring` namespaces.
+#
+# Three access tiers per namespace, mapped to the built-in ClusterRoles:
+#   - viewer : ClusterRole `view`  — read-only (no secrets)
+#   - editor : ClusterRole `edit`  — read-write workloads (no RBAC mgmt)
+#   - admin  : ClusterRole `admin` — full namespace admin incl. RBAC
+#
+# To grant access, edit the `subjects:` block of the appropriate RoleBinding.
+# Pick one or more of:
+#   - kind: User           name: alice@example.com             apiGroup: rbac.authorization.k8s.io
+#   - kind: Group          name: healthcare-developers         apiGroup: rbac.authorization.k8s.io
+#   - kind: ServiceAccount name: jenkins  namespace: ci        (omit apiGroup)
+#
+# Apply:
+#   kubectl apply -f monitoring/k8s/07-user-rbac.yaml
+#
+# Verify what a user can do:
+#   kubectl auth can-i list pods --as=alice@example.com -n healthcare
+#   kubectl auth can-i delete deploy --as=alice@example.com -n healthcare
+
+# =============================================================================
+# healthcare namespace
+# =============================================================================
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: healthcare-viewers
+  namespace: healthcare
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: view
+subjects:
+  # TODO: replace with your real users/groups
+  - kind: Group
+    name: healthcare-viewers
+    apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: healthcare-editors
+  namespace: healthcare
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: edit
+subjects:
+  # TODO: replace with your real users/groups
+  - kind: Group
+    name: healthcare-developers
+    apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: healthcare-admins
+  namespace: healthcare
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: admin
+subjects:
+  # TODO: replace with your real users/groups
+  - kind: Group
+    name: healthcare-admins
+    apiGroup: rbac.authorization.k8s.io
+
+# =============================================================================
+# monitoring namespace
+# =============================================================================
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: monitoring-viewers
+  namespace: monitoring
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: view
+subjects:
+  # TODO: replace with your real users/groups
+  - kind: Group
+    name: monitoring-viewers
+    apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: monitoring-editors
+  namespace: monitoring
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: edit
+subjects:
+  # TODO: replace with your real users/groups
+  - kind: Group
+    name: monitoring-editors
+    apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: monitoring-admins
+  namespace: monitoring
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: admin
+subjects:
+  # TODO: replace with your real users/groups
+  - kind: Group
+    name: monitoring-admins
+    apiGroup: rbac.authorization.k8s.io

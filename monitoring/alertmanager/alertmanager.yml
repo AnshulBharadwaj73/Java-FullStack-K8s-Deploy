@@ -1,0 +1,53 @@
+global:
+  resolve_timeout: 5m
+  # Replace via env / secret in real environments
+  pagerduty_url: https://events.pagerduty.com/v2/enqueue
+
+route:
+  receiver: pagerduty-default
+  group_by: ["alertname", "service", "severity"]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+  routes:
+    - matchers:
+        - severity = "critical"
+      receiver: null
+      continue: true
+    - matchers:
+        - severity = "warning"
+      receiver: null
+
+inhibit_rules:
+  - source_matchers: [severity = "critical"]
+    target_matchers: [severity = "warning"]
+    equal: ["alertname", "service"]
+
+receivers:
+  - name: pagerduty-default
+    pagerduty_configs:
+      - routing_key: ${PAGERDUTY_ROUTING_KEY}
+        severity: "{{ .CommonLabels.severity }}"
+        description: "{{ .CommonAnnotations.summary }}"
+        details:
+          firing: "{{ .Alerts.Firing | len }}"
+          resolved: "{{ .Alerts.Resolved | len }}"
+          service: "{{ .CommonLabels.service }}"
+          environment: "{{ .CommonLabels.environment }}"
+
+  - name: pagerduty-critical
+    pagerduty_configs:
+      - routing_key: ${PAGERDUTY_ROUTING_KEY_CRITICAL}
+        severity: critical
+        client: alertmanager
+        client_url: "{{ template \"pagerduty.default.clientURL\" . }}"
+        description: "[CRITICAL] {{ .CommonAnnotations.summary }}"
+
+  - name: pagerduty-warning
+    pagerduty_configs:
+      - routing_key: ${PAGERDUTY_ROUTING_KEY_WARNING}
+        severity: warning
+        description: "[WARNING] {{ .CommonAnnotations.summary }}"
+
+templates:
+  - /etc/alertmanager/templates/*.tmpl

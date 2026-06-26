@@ -1,0 +1,84 @@
+# Values for prometheus-community/kube-prometheus-stack.
+# Installs Prometheus Operator, Prometheus, Alertmanager, Grafana,
+# node-exporter and kube-state-metrics in one shot.
+#
+# Install:
+#   helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+#   helm repo update
+#   helm upgrade --install kps prometheus-community/kube-prometheus-stack \
+#     -n monitoring --create-namespace \
+#     -f monitoring/helm/kube-prometheus-stack-values.yaml \
+#     --set alertmanager.config.global.pagerduty_url=https://events.pagerduty.com/v2/enqueue
+
+fullnameOverride: kps
+
+prometheus:
+  prometheusSpec:
+    retention: 15d
+    # Pick up ServiceMonitors in any namespace, not just the chart's release ns.
+    serviceMonitorSelectorNilUsesHelmValues: false
+    podMonitorSelectorNilUsesHelmValues: false
+    ruleSelectorNilUsesHelmValues: false
+    resources:
+      requests: { cpu: 200m, memory: 512Mi }
+      limits:   { cpu: 1,    memory: 2Gi }
+    additionalScrapeConfigs: []
+
+alertmanager:
+  alertmanagerSpec:
+    resources:
+      requests: { cpu: 50m, memory: 64Mi }
+      limits:   { cpu: 200m, memory: 256Mi }
+  # Override with --set or a sealed-secret in production.
+  config:
+    global:
+      resolve_timeout: 5m
+      pagerduty_url: https://events.pagerduty.com/v2/enqueue
+    route:
+      receiver: pagerduty-default
+      group_by: ["alertname", "service", "severity"]
+      group_wait: 30s
+      group_interval: 5m
+      repeat_interval: 4h
+      routes:
+        - matchers: [severity = "critical"]
+          receiver: pagerduty-critical
+          continue: true
+        - matchers: [severity = "warning"]
+          receiver: pagerduty-warning
+    receivers:
+      - name: "null"
+      - name: pagerduty-default
+        pagerduty_configs:
+          - routing_key: REPLACE_ME
+            description: "{{ .CommonAnnotations.summary }}"
+      - name: pagerduty-critical
+        pagerduty_configs:
+          - routing_key: REPLACE_ME_CRITICAL
+            severity: critical
+            description: "[CRITICAL] {{ .CommonAnnotations.summary }}"
+      - name: pagerduty-warning
+        pagerduty_configs:
+          - routing_key: REPLACE_ME_WARNING
+            severity: warning
+            description: "[WARNING] {{ .CommonAnnotations.summary }}"
+    inhibit_rules:
+      - source_matchers: [severity = "critical"]
+        target_matchers: [severity = "warning"]
+        equal: ["alertname", "service"]
+
+grafana:
+  adminPassword: admin
+  defaultDashboardsTimezone: browser
+  sidecar:
+    dashboards:
+      enabled: true
+      label: grafana_dashboard
+      searchNamespace: ALL
+  resources:
+    requests: { cpu: 100m, memory: 128Mi }
+    limits:   { cpu: 500m, memory: 512Mi }
+
+# We bundle node-exporter & kube-state-metrics by default.
+nodeExporter: { enabled: true }
+kubeStateMetrics: { enabled: true }
