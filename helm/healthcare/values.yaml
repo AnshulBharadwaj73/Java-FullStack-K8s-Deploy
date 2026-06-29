@@ -20,6 +20,21 @@ config:
   MONGO_PORT: "27017"
   MONGO_DB: "healthcare"
 
+# StorageClass for EBS-backed volumes on EKS. Disabled by default so local
+# clusters (minikube) use their own default class. Enable on EKS (values-dev /
+# values-eks) so the gp3 class referenced by mongodb.storageClassName exists —
+# otherwise the PVC stays Pending and the deploy fails.
+storageClass:
+  create: false
+  name: gp3
+  provisioner: ebs.csi.aws.com        # AWS EBS CSI driver (installed as an EKS addon)
+  type: gp3
+  encrypted: true
+  reclaimPolicy: Delete
+  allowVolumeExpansion: true
+  volumeBindingMode: WaitForFirstConsumer   # create the volume in the pod's AZ
+  isDefault: false        
+
 # Secret values — becomes Secret "app-secret"
 # In prod, override these via --set or values-prod.yaml; never commit real secrets.
 secret:
