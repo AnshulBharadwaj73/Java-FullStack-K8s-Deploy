@@ -1,4 +1,7 @@
 namespace: healthcare
+# Namespace is created by `helm --create-namespace` (see ci/scripts/deploy.sh),
+# so the chart must NOT also template it — doing both causes a
+# "namespaces already exists" conflict on install. Keep false.
 createNamespace: false
 
 image:
