@@ -15,8 +15,15 @@ if [ ! -f "${VALUES_FILE}" ]; then
     exit 1
 fi
 
-echo "=== Deploying ${RELEASE} to ${ENVIRONMENT} with image tag ${TAG} ==="
+# Inject the image registry if provided (the dev/staging values files ship an
+# empty image.repository, expecting CI to set it). Without this the image
+# renders as "/shsm-<svc>:<tag>" → InvalidImageName.
+REGISTRY_ARG=()
+if [ -n "${ECR_REGISTRY:-}" ]; then
+    REGISTRY_ARG=(--set image.repository="${ECR_REGISTRY}")
+fi
 
+echo "=== Deploying ${RELEASE} to ${ENVIRONMENT} with image tag ${TAG}${ECR_REGISTRY:+ from ${ECR_REGISTRY}} ==="
 helm upgrade --install "${RELEASE}" "${CHART_DIR}" \
     --namespace "${NAMESPACE}" \
     --create-namespace \
