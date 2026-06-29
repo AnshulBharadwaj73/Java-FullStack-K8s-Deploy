@@ -1,5 +1,5 @@
 namespace: healthcare
-createNamespace: true
+createNamespace: false
 
 image:
   repository: anshul9589
