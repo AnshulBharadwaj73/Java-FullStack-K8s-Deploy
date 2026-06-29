@@ -1,6 +1,6 @@
 # Dev EKS — minimal resources, latest images on every push, internal-only
 image:
-  repository: ""   # set by Jenkins via --set image.repository=<account>.dkr.ecr.<region>.amazonaws.com
+  repository: "035809508418.dkr.ecr.us-east-1.amazonaws.com"   # CI also injects via --set image.repository
   pullPolicy: Always
 
 mongodb:
