@@ -4,16 +4,19 @@ target/
 !**/src/test/**/target/
 
 ### IntelliJ IDEA ###
+.idea/vcs.xml
 .idea/modules.xml
 .idea/jarRepositories.xml
 .idea/compiler.xml
 .idea/libraries/
 .idea/encodings.xml
+.idea/jpa-buddy.xml
 *.iws
 *.iml
 *.ipr
 .idea/misc.xml
 
+node_modules/
 
 ### Eclipse ###
 .apt_generated
@@ -49,10 +52,14 @@ notification-service/mvnw.cmd
 
 notification-service/.mvn/wrapper/maven-wrapper.jar
 
-.env
+*.env
 
 Jenkinsfile
 
-.github/workflows/ci-cd.yml
-
 Dockerfile.dev
+
+*.md
+!README.md
+
+*.tex
+

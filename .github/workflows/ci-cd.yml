@@ -1,0 +1,515 @@
+name: CI / CD to EKS
+
+on:
+  push:
+    branches: [main, develop]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Target environment"
+        required: true
+        type: choice
+        options: [dev, staging, prod]
+        default: dev
+      skip_tests:
+        description: "Skip unit tests (emergency hotfix only)"
+        required: false
+        type: boolean
+        default: false
+      skip_security_scan:
+        description: "Skip Trivy image scan"
+        required: false
+        type: boolean
+        default: false
+      rollback_revision:
+        description: "Helm revision to roll back to (leave blank for normal deploy)"
+        required: false
+        type: string
+        default: ""
+      force_all:
+        description: "Rebuild every service regardless of diff"
+        required: false
+        type: boolean
+        default: false
+
+env:
+  AWS_REGION: us-east-1
+  HELM_RELEASE: healthcare
+  HELM_NAMESPACE: healthcare
+  HELM_CHART_PATH: helm/healthcare
+  ECR_REGISTRY: ${{ vars.ECR_REGISTRY }}      # 123456789012.dkr.ecr.us-east-1.amazonaws.com
+
+permissions:
+  id-token: write        # OIDC -> AWS
+  contents: read
+  pull-requests: write
+  security-events: write # Trivy SARIF upload to Security tab
+
+# Only one deploy per environment runs at a time.
+concurrency:
+  group: cicd-${{ github.event.inputs.environment || 'auto' }}
+  cancel-in-progress: false
+
+jobs:
+  # ───────────────────────────────────────────────────────────────
+  # Resolve target environment and image tag once for all jobs.
+  # ───────────────────────────────────────────────────────────────
+  setup:
+    name: Setup
+    runs-on: ubuntu-latest
+    outputs:
+      environment:        ${{ steps.env.outputs.environment }}
+      image_tag:          ${{ steps.env.outputs.image_tag }}
+      is_rollback:        ${{ steps.env.outputs.is_rollback }}
+      is_pr:              ${{ steps.env.outputs.is_pr }}
+      should_deploy:      ${{ steps.env.outputs.should_deploy }}
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+
+      - id: env
+        run: |
+          # ── Pick environment ─────────────────────────────────
+          if [[ -n "${{ inputs.environment }}" ]]; then
+            ENV="${{ inputs.environment }}"
+          elif [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            ENV="prod"
+          elif [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
+            ENV="staging"
+          else
+            ENV="dev"
+          fi
+
+          # ── Image tag ───────────────────────────────────────
+          SHORT_SHA=$(git rev-parse --short HEAD)
+          BRANCH=$(echo "${{ github.ref_name }}" | tr '/' '-')
+          TAG="${BRANCH}-${{ github.run_number }}-${SHORT_SHA}"
+
+          IS_ROLLBACK=false
+          [[ -n "${{ inputs.rollback_revision }}" ]] && IS_ROLLBACK=true
+
+          IS_PR=false
+          [[ "${{ github.event_name }}" == "pull_request" ]] && IS_PR=true
+
+          # Deploy only on push/tag/dispatch (not PRs).
+          SHOULD_DEPLOY=false
+          if [[ "${{ github.event_name }}" != "pull_request" ]]; then
+            SHOULD_DEPLOY=true
+          fi
+
+          echo "environment=$ENV"        >> $GITHUB_OUTPUT
+          echo "image_tag=$TAG"          >> $GITHUB_OUTPUT
+          echo "is_rollback=$IS_ROLLBACK" >> $GITHUB_OUTPUT
+          echo "is_pr=$IS_PR"            >> $GITHUB_OUTPUT
+          echo "should_deploy=$SHOULD_DEPLOY" >> $GITHUB_OUTPUT
+
+          echo "── Resolved ──"
+          echo "Environment:   $ENV"
+          echo "Image tag:     $TAG"
+          echo "Is rollback:   $IS_ROLLBACK"
+          echo "Is PR:         $IS_PR"
+          echo "Should deploy: $SHOULD_DEPLOY"
+
+  # ───────────────────────────────────────────────────────────────
+  # ROLLBACK path — short-circuits everything else.
+  # ───────────────────────────────────────────────────────────────
+  rollback:
+    name: Rollback
+    needs: setup
+    if: needs.setup.outputs.is_rollback == 'true'
+    runs-on: ubuntu-latest
+    environment:
+      name: ${{ needs.setup.outputs.environment }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - uses: azure/setup-helm@v4
+        with: { version: 'v3.14.0' }
+
+      - name: Update kubeconfig
+        run: |
+          aws eks update-kubeconfig \
+            --name healthcare-eks-${{ needs.setup.outputs.environment }} \
+            --region $AWS_REGION
+
+      - name: Roll back
+        run: |
+          helm history $HELM_RELEASE -n $HELM_NAMESPACE
+          helm rollback $HELM_RELEASE ${{ inputs.rollback_revision }} \
+            -n $HELM_NAMESPACE --wait --timeout 10m
+          kubectl get pods -n $HELM_NAMESPACE
+
+  # ───────────────────────────────────────────────────────────────
+  # Detect changed services (skip rebuilds for unchanged ones).
+  # ───────────────────────────────────────────────────────────────
+  detect:
+    name: Detect changes
+    needs: setup
+    if: needs.setup.outputs.is_rollback != 'true'
+    runs-on: ubuntu-latest
+    outputs:
+      services: ${{ steps.set.outputs.services }}
+      any:      ${{ steps.set.outputs.any }}
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 2 }
+
+      - id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            admin-service: 'admin-service/**'
+            appointment-service: 'appointment-service/**'
+            auth-service: 'auth-service/**'
+            doctor-service: 'doctor-service/**'
+            gateway-service: 'gateway-service/**'
+            notification-service: 'notification-service/**'
+            patient-service: 'patient-service/**'
+            ui-service: 'ui-component/**'
+            chart: 'helm/healthcare/**'
+
+      - id: set
+        run: |
+          ALL='["admin-service","appointment-service","auth-service","doctor-service","gateway-service","notification-service","patient-service","ui-service"]'
+          if [[ "${{ inputs.force_all }}" == "true" ]] || [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            echo "services=$ALL" >> $GITHUB_OUTPUT
+            echo "any=true"       >> $GITHUB_OUTPUT
+          else
+            CHANGED='${{ steps.filter.outputs.changes }}'
+            # Drop "chart" entry from the build matrix; chart changes trigger deploy, not rebuild.
+            SERVICES=$(echo "$CHANGED" | jq -c 'map(select(. != "chart"))')
+            echo "services=$SERVICES" >> $GITHUB_OUTPUT
+            if [[ "$SERVICES" == "[]" ]] && [[ "$CHANGED" != *"chart"* ]]; then
+              echo "any=false" >> $GITHUB_OUTPUT
+            else
+              echo "any=true" >> $GITHUB_OUTPUT
+            fi
+          fi
+
+  # ───────────────────────────────────────────────────────────────
+  # Helm chart lint + dry-render (always, on PRs too).
+  # ───────────────────────────────────────────────────────────────
+  helm-lint:
+    name: Helm lint
+    needs: setup
+    if: needs.setup.outputs.is_rollback != 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+        with: { version: 'v3.14.0' }
+      - name: Lint chart
+        run: helm lint $HELM_CHART_PATH
+      - name: Template render (dry-run)
+        run: |
+          helm template $HELM_RELEASE $HELM_CHART_PATH \
+            -f $HELM_CHART_PATH/values-${{ needs.setup.outputs.environment }}.yaml \
+            > /dev/null
+
+  # ───────────────────────────────────────────────────────────────
+  # Build & test each changed service in parallel (matrix).
+  # ───────────────────────────────────────────────────────────────
+  build:
+    name: Build ${{ matrix.service }}
+    needs: [setup, detect, helm-lint]
+    if: needs.setup.outputs.is_rollback != 'true' && needs.detect.outputs.services != '[]'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        service: ${{ fromJSON(needs.detect.outputs.services) }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve build context
+        id: ctx
+        run: |
+          if [[ "${{ matrix.service }}" == "ui-service" ]]; then
+            echo "dir=ui-component" >> $GITHUB_OUTPUT
+            echo "lang=node"        >> $GITHUB_OUTPUT
+          else
+            echo "dir=${{ matrix.service }}" >> $GITHUB_OUTPUT
+            echo "lang=java"                  >> $GITHUB_OUTPUT
+          fi
+          echo "image=shsm-${{ matrix.service }}" >> $GITHUB_OUTPUT
+
+      # ── Java path ──────────────────────────────────────────
+      - uses: actions/setup-java@v4
+        if: steps.ctx.outputs.lang == 'java'
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Maven build & test
+        if: steps.ctx.outputs.lang == 'java'
+        working-directory: ${{ steps.ctx.outputs.dir }}
+        run: |
+          if [[ "${{ inputs.skip_tests }}" == "true" ]]; then
+            mvn -B -ntp clean package -DskipTests
+          else
+            mvn -B -ntp clean package
+          fi
+
+      - name: Publish test report
+        if: steps.ctx.outputs.lang == 'java' && inputs.skip_tests != true && always()
+        uses: dorny/test-reporter@v1
+        with:
+          name: ${{ matrix.service }} tests
+          path: ${{ steps.ctx.outputs.dir }}/target/surefire-reports/*.xml
+          reporter: java-junit
+          fail-on-error: false
+
+      # ── Node path ──────────────────────────────────────────
+      - uses: actions/setup-node@v4
+        if: steps.ctx.outputs.lang == 'node'
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: ${{ steps.ctx.outputs.dir }}/package-lock.json
+
+      - name: NPM install & build
+        if: steps.ctx.outputs.lang == 'node'
+        working-directory: ${{ steps.ctx.outputs.dir }}
+        run: |
+          npm ci
+          npm run lint --if-present || true
+          if [[ "${{ inputs.skip_tests }}" != "true" ]]; then
+            npm test --if-present -- --watchAll=false || true
+          fi
+          npm run build
+
+      # ── Docker build & push (skip on PRs) ──────────────────
+      - uses: aws-actions/configure-aws-credentials@v4
+        if: needs.setup.outputs.should_deploy == 'true'
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - uses: aws-actions/amazon-ecr-login@v2
+        if: needs.setup.outputs.should_deploy == 'true'
+
+      - uses: docker/setup-buildx-action@v3
+        if: needs.setup.outputs.should_deploy == 'true'
+
+      - name: Build & push image
+        if: needs.setup.outputs.should_deploy == 'true'
+        uses: docker/build-push-action@v5
+        with:
+          context: ./${{ steps.ctx.outputs.dir }}
+          push: true
+          provenance: false
+          tags: |
+            ${{ env.ECR_REGISTRY }}/${{ steps.ctx.outputs.image }}:${{ needs.setup.outputs.image_tag }}
+            ${{ env.ECR_REGISTRY }}/${{ steps.ctx.outputs.image }}:latest
+          cache-from: type=gha,scope=${{ matrix.service }}
+          cache-to:   type=gha,scope=${{ matrix.service }},mode=max
+
+      # ── Trivy scan (uploads SARIF to GitHub Security) ──────
+      - name: Trivy scan
+        if: needs.setup.outputs.should_deploy == 'true' && inputs.skip_security_scan != true
+        uses: aquasecurity/trivy-action@0.24.0
+        with:
+          image-ref: ${{ env.ECR_REGISTRY }}/${{ steps.ctx.outputs.image }}:${{ needs.setup.outputs.image_tag }}
+          format: 'sarif'
+          output: 'trivy-${{ matrix.service }}.sarif'
+          severity: 'CRITICAL,HIGH'
+          ignore-unfixed: true
+          exit-code: '1'
+          vuln-type: 'os,library'
+
+      - name: Upload SARIF
+        if: needs.setup.outputs.should_deploy == 'true' && inputs.skip_security_scan != true && always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-${{ matrix.service }}.sarif
+          category: trivy-${{ matrix.service }}
+
+  # ───────────────────────────────────────────────────────────────
+  # SonarQube / SonarCloud scan — code quality + coverage gate.
+  # Required repo secrets:
+  #   SONAR_TOKEN     — generated in Sonar UI → My Account → Security
+  # Required repo variables:
+  #   SONAR_HOST_URL  — e.g. https://sonarcloud.io  or  https://sonar.internal
+  # Optional:
+  #   SONAR_ORG       — SonarCloud organisation key (omit for self-hosted)
+  #
+  # Skipped if SONAR_TOKEN is unset (no-op rather than failing the build).
+  # Same matrix as `build` so each service uploads independently.
+  # ───────────────────────────────────────────────────────────────
+  # sonar-scan:
+  #   name: Sonar ${{ matrix.service }}
+  #   needs: [setup, detect, build]
+  #   if: |
+  #     always() &&
+  #     needs.setup.outputs.is_rollback != 'true' &&
+  #     needs.detect.outputs.services != '[]' &&
+  #     needs.build.result == 'success'
+  #   runs-on: ubuntu-latest
+  #   strategy:
+  #     fail-fast: false
+  #     matrix:
+  #       service: ${{ fromJSON(needs.detect.outputs.services) }}
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #       with: { fetch-depth: 0 }   # Sonar wants full history for blame attribution
+
+  #     - name: Check Sonar credentials
+  #       id: sonar
+  #       run: |
+  #         if [[ -z "${{ secrets.SONAR_TOKEN }}" ]]; then
+  #           echo "configured=false" >> $GITHUB_OUTPUT
+  #           echo "::warning::SONAR_TOKEN not set — skipping Sonar scan."
+  #         else
+  #           echo "configured=true" >> $GITHUB_OUTPUT
+  #         fi
+
+  #     - uses: actions/setup-java@v4
+  #       if: steps.sonar.outputs.configured == 'true' && matrix.service != 'ui-service'
+  #       with:
+  #         distribution: temurin
+  #         java-version: '21'
+  #         cache: maven
+
+  #     - uses: actions/setup-node@v4
+  #       if: steps.sonar.outputs.configured == 'true' && matrix.service == 'ui-service'
+  #       with:
+  #         node-version: '20'
+  #         cache: 'npm'
+  #         cache-dependency-path: ui-component/package-lock.json
+
+  #     - name: Cache Sonar packages
+  #       if: steps.sonar.outputs.configured == 'true'
+  #       uses: actions/cache@v4
+  #       with:
+  #         path: ~/.sonar/cache
+  #         key: sonar-${{ runner.os }}
+  #         restore-keys: sonar-${{ runner.os }}
+
+  #     - name: Run scan
+  #       if: steps.sonar.outputs.configured == 'true'
+  #       env:
+  #         SONAR_HOST_URL: ${{ vars.SONAR_HOST_URL }}
+  #         SONAR_TOKEN:    ${{ secrets.SONAR_TOKEN }}
+  #         SONAR_ORG:      ${{ vars.SONAR_ORG }}
+  #         # Don't fail the workflow on quality-gate failure for PRs;
+  #         # do fail on push (so merges to main respect the gate).
+  #         SONAR_QUALITY_GATE_WAIT: ${{ needs.setup.outputs.is_pr == 'true' && 'false' || 'true' }}
+  #       run: |
+  #         chmod +x ci/scripts/sonar-scan.sh
+  #         ci/scripts/sonar-scan.sh "${{ matrix.service }}"
+
+  # ───────────────────────────────────────────────────────────────
+  # Production approval gate — uses GitHub Environments.
+  # Configure required reviewers under repo → Settings → Environments → production.
+  # ───────────────────────────────────────────────────────────────
+  approve-prod:
+    name: Approve production deploy
+    needs: [setup, build]
+    if: needs.setup.outputs.environment == 'prod' && needs.setup.outputs.should_deploy == 'true'
+    runs-on: ubuntu-latest
+    environment:
+      name: production-approval
+      url: https://healthcare.example.com
+    steps:
+      - run: echo "Approved to deploy ${{ needs.setup.outputs.image_tag }} to prod."
+
+  # ───────────────────────────────────────────────────────────────
+  # Deploy via Helm to EKS.
+  # ───────────────────────────────────────────────────────────────
+  deploy:
+    name: Deploy to EKS (${{ needs.setup.outputs.environment }})
+    needs: [setup, build, approve-prod]
+    # approve-prod is skipped for non-prod; allow that via always() + explicit success of build.
+    if: |
+      always() &&
+      needs.setup.outputs.is_rollback != 'true' &&
+      needs.setup.outputs.should_deploy == 'true' &&
+      needs.build.result == 'success' &&
+      (needs.approve-prod.result == 'success' || needs.approve-prod.result == 'skipped')
+    runs-on: ubuntu-latest
+    environment:
+      name: ${{ needs.setup.outputs.environment }}
+      url: https://healthcare.example.com
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - uses: azure/setup-helm@v4
+        with: { version: 'v3.14.0' }
+
+      - name: Update kubeconfig
+        run: |
+          aws eks update-kubeconfig \
+            --name healthcare-eks-${{ needs.setup.outputs.environment }} \
+            --region $AWS_REGION
+          kubectl get nodes
+
+      - name: Helm upgrade --install --atomic
+        env:
+          ENVIRONMENT: ${{ needs.setup.outputs.environment }}
+          ECR_REGISTRY: ${{ env.ECR_REGISTRY }}
+        run: |
+          chmod +x ci/scripts/deploy.sh
+          ci/scripts/deploy.sh "${ENVIRONMENT}" "${{ needs.setup.outputs.image_tag }}"
+
+      - name: Smoke test
+        run: |
+          chmod +x ci/scripts/smoke-test.sh
+          ci/scripts/smoke-test.sh "${{ needs.setup.outputs.environment }}"
+
+      - name: Rollback on failure
+        if: failure()
+        run: |
+          helm history $HELM_RELEASE -n $HELM_NAMESPACE
+          helm rollback $HELM_RELEASE 0 -n $HELM_NAMESPACE --wait --timeout 10m || true
+          kubectl get pods -n $HELM_NAMESPACE
+
+  # ───────────────────────────────────────────────────────────────
+  # Slack notification — success or failure.
+  # ───────────────────────────────────────────────────────────────
+  # notify:
+  #   name: Slack notify
+  #   needs: [setup, deploy, rollback]
+  #   if: always() && (needs.deploy.result != 'skipped' || needs.rollback.result != 'skipped')
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - name: Compose status
+  #       id: status
+  #       run: |
+  #         if [[ "${{ needs.rollback.result }}" == "success" ]]; then
+  #           echo "color=good"    >> $GITHUB_OUTPUT
+  #           echo "text=✅ ROLLBACK ${{ github.repository }} #${{ github.run_number }} → *${{ needs.setup.outputs.environment }}* to revision ${{ inputs.rollback_revision }}" >> $GITHUB_OUTPUT
+  #         elif [[ "${{ needs.deploy.result }}" == "success" ]]; then
+  #           echo "color=good"    >> $GITHUB_OUTPUT
+  #           echo "text=✅ DEPLOY ${{ github.repository }} #${{ github.run_number }} → *${{ needs.setup.outputs.environment }}*: ${{ needs.setup.outputs.image_tag }}" >> $GITHUB_OUTPUT
+  #         else
+  #           echo "color=danger"  >> $GITHUB_OUTPUT
+  #           echo "text=❌ FAILED ${{ github.repository }} #${{ github.run_number }} → ${{ needs.setup.outputs.environment }} — <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|view logs>" >> $GITHUB_OUTPUT
+  #         fi
+
+  #     - name: Send to Slack
+  #       if: vars.SLACK_WEBHOOK_URL != '' || secrets.SLACK_WEBHOOK_URL != ''
+  #       uses: slackapi/slack-github-action@v1.27.0
+  #       with:
+  #         payload: |
+  #           {
+  #             "attachments": [{
+  #               "color": "${{ steps.status.outputs.color }}",
+  #               "text": "${{ steps.status.outputs.text }}"
+  #             }]
+  #           }
+  #       env:
+  #         SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
