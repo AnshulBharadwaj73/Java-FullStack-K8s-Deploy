@@ -3,6 +3,9 @@ image:
   repository: "035809508418.dkr.ecr.us-east-1.amazonaws.com"   # CI also injects via --set image.repository
   pullPolicy: Always
 
+storageClass:
+  create: true
+
 mongodb:
   storageClassName: gp3
   storageSize: 10Gi
