@@ -1,0 +1,22 @@
+{{- if .Values.storageClass.create }}
+# Cluster-scoped EBS StorageClass for EKS. Created so PVCs that reference
+# `storageClassName: gp3` (e.g. mongodb) can bind — EKS ships only `gp2` by
+# default. Requires the AWS EBS CSI driver addon to be installed on the cluster.
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: {{ .Values.storageClass.name }}
+  labels:
+    {{- include "healthcare.labels" (dict "name" .Values.storageClass.name "root" .) | nindent 4 }}
+  {{- if .Values.storageClass.isDefault }}
+  annotations:
+    storageclass.kubernetes.io/is-default-class: "true"
+  {{- end }}
+provisioner: {{ .Values.storageClass.provisioner }}
+parameters:
+  type: {{ .Values.storageClass.type }}
+  encrypted: {{ .Values.storageClass.encrypted | quote }}
+reclaimPolicy: {{ .Values.storageClass.reclaimPolicy }}
+allowVolumeExpansion: {{ .Values.storageClass.allowVolumeExpansion }}
+volumeBindingMode: {{ .Values.storageClass.volumeBindingMode }}
+{{- end }}
