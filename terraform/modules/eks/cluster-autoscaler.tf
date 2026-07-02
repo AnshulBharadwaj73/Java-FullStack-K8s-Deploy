@@ -97,7 +97,7 @@ output "cluster_autoscaler_install_command" {
     helm upgrade --install cluster-autoscaler autoscaler/cluster-autoscaler \
       -n kube-system \
       --set autoDiscovery.clusterName=${var.cluster_name} \
-      --set awsRegion=${data.aws_region.current.name} \
+      --set awsRegion=${data.aws_region.current.region} \
       --set rbac.serviceAccount.name=cluster-autoscaler \
       --set "rbac.serviceAccount.annotations.eks\\.amazonaws\\.com/role-arn=${aws_iam_role.cluster_autoscaler.arn}" \
       --set extraArgs.balance-similar-node-groups=true \
