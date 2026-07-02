@@ -31,7 +31,7 @@ helm upgrade --install "${RELEASE}" "${CHART_DIR}" \
     "${REGISTRY_ARG[@]}" \
     --set image.tag="${TAG}" \
     --set ui.tag="${TAG}" \
-    --rollback-on-failure \
+    --atomic \
     --timeout 5m \
     --history-max 10 \
     --wait
