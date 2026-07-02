@@ -21,6 +21,10 @@ resource "aws_iam_user_login_profile" "user_profile" {
   password_reset_required = var.password_reset_required
 }
 
+resource "aws_oidc" "name" {
+  
+}
+
 resource "random_password" "rand_password" {
 	count = var.create_console_access && var.console_password == "" ? 1 : 0
 	length = 16

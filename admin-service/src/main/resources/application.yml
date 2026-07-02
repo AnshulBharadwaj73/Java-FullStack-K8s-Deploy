@@ -19,3 +19,19 @@ spring:
         status-lifetime: 10000
       routes:
         endpoints: info
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: "health,info,prometheus,metrics"   # narrower than "*"
+  endpoint:
+    health:
+      probes:
+        enabled: true                                # k8s liveness/readiness groups
+  metrics:
+    tags:
+      application: ${spring.application.name}        # adds `application=` label to every metric
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true    

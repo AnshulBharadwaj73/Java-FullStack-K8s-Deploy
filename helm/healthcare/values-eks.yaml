@@ -4,8 +4,12 @@
 image:
   # Set to your AWS account's ECR registry. Override with --set image.repository=... in CI.
   repository: "035809508418.dkr.ecr.us-east-1.amazonaws.com"
-  tag: "1.1"
+  tag: "1.2"
   pullPolicy: IfNotPresent
+
+# Create the gp3 StorageClass so the mongodb PVC below can bind on EKS.
+storageClass:
+  create: true
 
 mongodb:
   storageClassName: gp3
@@ -13,26 +17,145 @@ mongodb:
 
 ui:
   service:
-    type: LoadBalancer   # ALB Ingress reaches it directly; no NodePort needed
-  tag: "1.1"
+    type: ClusterIP   # ALB Ingress reaches it directly; no NodePort needed
+  tag: "1.2"
+
+# ingress:
+#   enabled: true
+#   className: alb
+#   host: healthcare.example.com    # <-- change to your real domain (or set via --set)
+#   annotations:
+#     # ----- ALB lifecycle / placement -----
+#     alb.ingress.kubernetes.io/scheme: internet-facing
+#     alb.ingress.kubernetes.io/target-type: ip
+#     alb.ingress.kubernetes.io/load-balancer-name: healthcare-dev-alb
+#     # Group multiple Ingresses onto a single ALB if you later add more.
+#     alb.ingress.kubernetes.io/group.name: healthcare
+
+#     # ----- HTTP + HTTPS listeners with auto-redirect to 443 -----
+#     alb.ingress.kubernetes.io/listen-ports: '[{"HTTP":80},{"HTTPS":443}]'
+#     alb.ingress.kubernetes.io/ssl-redirect: "443"
+#     alb.ingress.kubernetes.io/ssl-policy: ELBSecurityPolicy-TLS13-1-2-2021-06
+
+#     # ----- ACM cert for HTTPS -----
+#     # Required when listen-ports includes HTTPS. Get an ARN from:
+#     #   aws acm request-certificate --domain-name healthcare.example.com ...
+#     # then either paste it here OR pass via:
+#     #   helm upgrade ... --set ingress.annotations."alb\.ingress\.kubernetes\.io/certificate-arn"=arn:...
+#     alb.ingress.kubernetes.io/certificate-arn: arn:aws:acm:us-east-1:035809508418:certificate/REPLACE-ME
+
+#     # ----- Health checks (Spring Boot Actuator) -----
+#     alb.ingress.kubernetes.io/healthcheck-path: /actuator/health
+#     alb.ingress.kubernetes.io/healthcheck-interval-seconds: "15"
+#     alb.ingress.kubernetes.io/healthcheck-timeout-seconds: "5"
+#     alb.ingress.kubernetes.io/healthy-threshold-count: "2"
+#     alb.ingress.kubernetes.io/unhealthy-threshold-count: "3"
+#     alb.ingress.kubernetes.io/success-codes: "200-399"
+
+#     # ----- ExternalDNS — auto-create Route 53 record pointing the host at the ALB.
+#     # Requires ExternalDNS controller running in the cluster.
+#     external-dns.alpha.kubernetes.io/hostname: healthcare.example.com
+
+#   # Routes — kept the same shape as values.yaml; override here so you can use
+#   # different paths/services per env if needed.
+#   paths:
+#     - path: /api
+#       pathType: Prefix
+#       service: gateway-service
+#       port: 8080
+#     - path: /admin
+#       pathType: Prefix
+#       service: admin-service
+#       port: 8080
+#     - path: /
+#       pathType: Prefix
+#       service: ui-service
+#       port: 80
+
+
+# ingress:
+#   enabled: true
+#   className: alb
+#   # Drop the host: it makes the rule match any Host header (path-based routing only)
+#   # host: ""           # leave unset
+#   annotations:
+#     alb.ingress.kubernetes.io/scheme: internet-facing
+#     alb.ingress.kubernetes.io/target-type: ip
+#     alb.ingress.kubernetes.io/load-balancer-name: healthcare-dev-alb
+#     alb.ingress.kubernetes.io/group.name: healthcare
+
+#     # ONLY listen on HTTP — no cert needed
+#     alb.ingress.kubernetes.io/listen-ports: '[{"HTTP":80}]'
+
+#     # Health checks
+#     alb.ingress.kubernetes.io/healthcheck-path: /actuator/health
+#     alb.ingress.kubernetes.io/healthcheck-interval-seconds: "15"
+#     alb.ingress.kubernetes.io/healthy-threshold-count: "2"
+#     alb.ingress.kubernetes.io/unhealthy-threshold-count: "3"
+#     alb.ingress.kubernetes.io/success-codes: "200-399"
+
+#   paths:
+#     - path: /api
+#       pathType: Prefix
+#       service: gateway-service
+#       port: 8080
+#     - path: /admin
+#       pathType: Prefix
+#       service: admin-service
+#       port: 8080
+#     - path: /
+#       pathType: Prefix
+#       service: ui-service
+#       port: 80
+
+# image:
+#   repository: "035809508418.dkr.ecr.us-east-1.amazonaws.com"
+#   pullPolicy: Always
+#   # tag MUST come from CLI; do NOT pin here
+
+# mongodb:
+#   storageClassName: gp3
+#   storageSize: 20Gi
+
+# ui:
+#   service:
+#     type: ClusterIP        # was: LoadBalancer  ← Issue 3 fix
 
 ingress:
+  enabled: true
   className: alb
-  host: healthcare.example.com    # <-- change to your real domain
+  host: ""
   annotations:
     alb.ingress.kubernetes.io/scheme: internet-facing
     alb.ingress.kubernetes.io/target-type: ip
-    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP":80},{"HTTPS":443}]'
-    # Spring Boot Actuator health endpoint — applied to all backend target groups
+    alb.ingress.kubernetes.io/load-balancer-name: healthcare-dev-alb
+    alb.ingress.kubernetes.io/group.name: healthcare
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP":80}]'
+
+    # Default health check for Spring services
     alb.ingress.kubernetes.io/healthcheck-path: /actuator/health
     alb.ingress.kubernetes.io/healthcheck-interval-seconds: "15"
-    alb.ingress.kubernetes.io/healthcheck-timeout-seconds: "5"
     alb.ingress.kubernetes.io/healthy-threshold-count: "2"
     alb.ingress.kubernetes.io/unhealthy-threshold-count: "3"
     alb.ingress.kubernetes.io/success-codes: "200-399"
-    # Uncomment after you've requested an ACM cert for the host above:
-    # alb.ingress.kubernetes.io/certificate-arn: arn:aws:acm:us-east-1:035809508418:certificate/<id>
-    # alb.ingress.kubernetes.io/ssl-redirect: "443"
+
+    # Per-target-group overrides via these annotations would require
+    # the LBC's IngressClassParams / TargetGroupBindings model. Simpler:
+    # change UI health check at the Service level using these:
+    alb.ingress.kubernetes.io/healthcheck-port: "traffic-port"
+  paths:
+    - path: /api
+      pathType: Prefix
+      service: gateway-service
+      port: 8080
+    - path: /admin
+      pathType: Prefix
+      service: admin-service
+      port: 8080
+    - path: /
+      pathType: Prefix
+      service: ui-service
+      port: 80
 
 # Production-like resource baseline (override in values-dev/staging/prod if needed)
 springDefaults:

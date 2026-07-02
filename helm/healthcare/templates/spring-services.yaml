@@ -9,7 +9,11 @@ metadata:
   labels:
     {{- include "healthcare.labels" (dict "name" .name "root" $root) | nindent 4 }}
 spec:
-  replicas: 1
+  {{- if not $root.Values.hpa.enabled }}
+  # When HPA is enabled it owns the replica count — omit replicas here so a
+  # helm upgrade doesn't reset it and fight the autoscaler.
+  replicas: {{ .replicas | default 1 }}
+  {{- end }}
   selector:
     matchLabels:
       app: {{ .name }}
@@ -17,6 +21,10 @@ spec:
     metadata:
       labels:
         {{- include "healthcare.labels" (dict "name" .name "root" $root) | nindent 8 }}
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: {{ $root.Values.springDefaults.metricsPath | default "/actuator/prometheus" | quote }}
+        prometheus.io/port: {{ $root.Values.springDefaults.port | quote }}
     spec:
       enableServiceLinks: false
       containers:

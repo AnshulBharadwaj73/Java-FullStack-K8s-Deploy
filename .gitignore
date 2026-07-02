@@ -16,7 +16,7 @@ target/
 *.ipr
 .idea/misc.xml
 
-node_modules/
+
 
 ### Eclipse ###
 .apt_generated
@@ -57,9 +57,14 @@ notification-service/.mvn/wrapper/maven-wrapper.jar
 Jenkinsfile
 
 Dockerfile.dev
+.github/workflows/drift-detect.yml
+.github/workflows/minikube-ci.yml
+
 
 *.md
 !README.md
 
 *.tex
+trivy-reports
+
 

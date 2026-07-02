@@ -24,10 +24,10 @@ spring:
       name: ${KAFKA_TOPIC}
 
   mail:
-    host: ${MAIL_SERVER_HOST}
-    port: ${MAIL_SERVER_PORT}
-    username: ${MAIL_SERVER_USERNAME}
-    password: ${MAIL_SERVER_PASSWORD}
+    host: smtp.gmail.com
+    port: 587
+    username: anshul.dub98@gmail.com
+    password: jcvzxzyjmlonxmpf
     properties:
       mail:
         smtp:
@@ -39,9 +39,18 @@ management:
   endpoints:
     web:
       exposure:
-        include: "*"
-      enable:
-        include: health
+        include: "health,info,prometheus,metrics"   # narrower than "*"
+  endpoint:
+    health:
+      probes:
+        enabled: true                                # k8s liveness/readiness groups
+  metrics:
+    tags:
+      application: ${spring.application.name}        # adds `application=` label to every metric
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true                   # so histogram_quantile() works for p95/p99
+
 
 server:
   port: 8080

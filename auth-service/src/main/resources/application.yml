@@ -25,9 +25,18 @@ management:
   endpoints:
     web:
       exposure:
-        include: "*"
-      enable:
-        include: health
+        include: "health,info,prometheus,metrics"   # narrower than "*"
+  endpoint:
+    health:
+      probes:
+        enabled: true                                # k8s liveness/readiness groups
+  metrics:
+    tags:
+      application: ${spring.application.name}        # adds `application=` label to every metric
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true                   # so histogram_quantile() works for p95/p99
+
 
 server:
   port: 8080

@@ -3,8 +3,16 @@ image:
   repository: "035809508418.dkr.ecr.us-east-1.amazonaws.com"   # CI also injects via --set image.repository
   pullPolicy: Always
 
+# Create the gp3 StorageClass so the mongodb PVC below can bind on EKS.
 storageClass:
   create: true
+
+# HPA — requires metrics-server in the cluster (install it separately, see notes).
+hpa:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 6
+  targetCPUUtilizationPercentage: 70
 
 mongodb:
   storageClassName: gp3
@@ -14,13 +22,49 @@ ui:
   service:
     type: ClusterIP   # ALB Ingress reaches it directly
 
+# ingress:
+#   className: alb
+#   host: dev.healthcare.example.com
+#   annotations:
+#     alb.ingress.kubernetes.io/scheme: internal
+#     alb.ingress.kubernetes.io/target-type: ip
+#     alb.ingress.kubernetes.io/listen-ports: '[{"HTTP":80}]'
+
 ingress:
+  enabled: true
   className: alb
-  host: dev.healthcare.example.com
+  host: ""
   annotations:
-    alb.ingress.kubernetes.io/scheme: internal
+    alb.ingress.kubernetes.io/scheme: internet-facing
     alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/load-balancer-name: healthcare-dev-alb
+    alb.ingress.kubernetes.io/group.name: healthcare
     alb.ingress.kubernetes.io/listen-ports: '[{"HTTP":80}]'
+
+    # Default health check for Spring services
+    alb.ingress.kubernetes.io/healthcheck-path: /actuator/health
+    alb.ingress.kubernetes.io/healthcheck-interval-seconds: "15"
+    alb.ingress.kubernetes.io/healthy-threshold-count: "2"
+    alb.ingress.kubernetes.io/unhealthy-threshold-count: "3"
+    alb.ingress.kubernetes.io/success-codes: "200-399"
+
+    # Per-target-group overrides via these annotations would require
+    # the LBC's IngressClassParams / TargetGroupBindings model. Simpler:
+    # change UI health check at the Service level using these:
+    alb.ingress.kubernetes.io/healthcheck-port: "traffic-port"
+  paths:
+    - path: /api
+      pathType: Prefix
+      service: gateway-service
+      port: 8080
+    - path: /admin
+      pathType: Prefix
+      service: admin-service
+      port: 8080
+    - path: /
+      pathType: Prefix
+      service: ui-service
+      port: 80
 
 springDefaults:
   resources:

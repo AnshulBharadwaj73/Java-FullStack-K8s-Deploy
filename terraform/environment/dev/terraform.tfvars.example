@@ -1,0 +1,30 @@
+# Copy this file to terraform.tfvars and edit values for your env.
+# terraform.tfvars is gitignored — never commit real values.
+
+aws_region  = "us-east-1"
+environment = "dev"
+project     = "healthcare"
+
+vpc_cidr           = "10.0.0.0/16"
+az_count           = 2
+single_nat_gateway = true     # cheap NAT for dev; set false for prod HA
+
+eks_cluster_name        = "healthcare-eks-dev"
+kubernetes_version      = "1.30"
+eks_public_access_cidrs = ["0.0.0.0/0"]   # lock to your office IP in prod
+
+# Diversify across instance types so spot has multiple pools to draw from.
+# All same vCPU/memory class (2 vCPU / 8 GiB) so pods schedule predictably.
+node_instance_types = ["t3.large", "t3a.large", "m5.large", "m5a.large"]
+node_desired_size   = 2
+node_min_size       = 2
+node_max_size       = 4
+capacity_type       = "SPOT"     # 70-90% cheaper than ON_DEMAND for dev workloads
+
+ecr_keep_image_count = 10
+
+tags = {
+  Project   = "Healthcare"
+  Owner     = "anshul"
+  ManagedBy = "Terraform"
+}

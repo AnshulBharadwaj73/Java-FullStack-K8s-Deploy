@@ -1,0 +1,48 @@
+# Local SonarQube for testing the scan before pushing to a real server.
+#
+# Usage:
+#   docker compose -f ci/sonar/docker-compose.sonar.yml up -d
+#   # Wait ~60s, then open http://localhost:9000  (admin/admin → change pw)
+#   # Generate a token: My Account → Security → Generate Token
+#
+# Then run the scan locally:
+#   SONAR_HOST_URL=http://localhost:9000 SONAR_TOKEN=<token> \
+#     ./ci/scripts/sonar-scan.sh auth-service
+#
+# Teardown:
+#   docker compose -f ci/sonar/docker-compose.sonar.yml down -v
+services:
+  sonarqube:
+    image: sonarqube:10.6-community
+    container_name: sonarqube
+    ports:
+      - "9000:9000"
+    environment:
+      SONAR_JDBC_URL: jdbc:postgresql://sonar-db:5432/sonar
+      SONAR_JDBC_USERNAME: sonar
+      SONAR_JDBC_PASSWORD: sonar
+    volumes:
+      - sonarqube_data:/opt/sonarqube/data
+      - sonarqube_logs:/opt/sonarqube/logs
+      - sonarqube_extensions:/opt/sonarqube/extensions
+    depends_on:
+      - sonar-db
+    # SonarQube needs Elasticsearch's mmap limit raised:
+    #   sudo sysctl -w vm.max_map_count=524288
+    # On Docker Desktop (macOS), this happens automatically.
+
+  sonar-db:
+    image: postgres:16-alpine
+    container_name: sonar-db
+    environment:
+      POSTGRES_USER: sonar
+      POSTGRES_PASSWORD: sonar
+      POSTGRES_DB: sonar
+    volumes:
+      - sonar_db_data:/var/lib/postgresql/data
+
+volumes:
+  sonarqube_data:
+  sonarqube_logs:
+  sonarqube_extensions:
+  sonar_db_data:

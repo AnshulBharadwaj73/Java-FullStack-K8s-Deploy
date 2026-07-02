@@ -28,10 +28,11 @@ helm upgrade --install "${RELEASE}" "${CHART_DIR}" \
     --namespace "${NAMESPACE}" \
     --create-namespace \
     --values "${VALUES_FILE}" \
+    "${REGISTRY_ARG[@]}" \
     --set image.tag="${TAG}" \
     --set ui.tag="${TAG}" \
-    --atomic \
-    --timeout 15m \
+    --rollback-on-failure \
+    --timeout 5m \
     --history-max 10 \
     --wait
 

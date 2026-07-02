@@ -36,7 +36,7 @@ check "UI homepage" "${BASE_URL}/" 200
 SIGNIN_CODE=$(curl -k -s -o /dev/null -w '%{http_code}' --max-time 10 \
     -X POST "${BASE_URL}/api/auth/signin" \
     -H "Content-Type: application/json" \
-    -d '{"username":"smoketest","password":"x"}')
+    -d '{"username":"admin","password":"admin12"}')
 if [ "${SIGNIN_CODE}" -ge "500" ]; then
     echo "❌ Gateway → auth-service: ${SIGNIN_CODE}"
     exit 1

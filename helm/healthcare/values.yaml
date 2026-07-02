@@ -4,6 +4,17 @@ namespace: healthcare
 # "namespaces already exists" conflict on install. Keep false.
 createNamespace: false
 
+# Horizontal Pod Autoscaler. Disabled by default because it REQUIRES
+# metrics-server in the cluster (EKS/minikube don't ship it) — without it HPA
+# targets show <unknown> and never scale. Enable on EKS (values-dev/eks).
+# Per-service overrides: add `hpa: { minReplicas, maxReplicas }` to a services[] entry.
+hpa:
+  enabled: false
+  minReplicas: 2
+  maxReplicas: 6
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80   # set to null/remove to scale on CPU only
+
 image:
   repository: anshul9589
   tag: "latest"               # default tag for Spring Boot services; override per-service via services[].tag

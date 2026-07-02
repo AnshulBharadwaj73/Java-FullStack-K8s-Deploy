@@ -25,18 +25,18 @@ variable "kubernetes_version" {
 
 variable "node_instance_types" {
   type        = list(string)
-  default     = ["t3.large"]
-  description = "EC2 types for managed node group. t3.large = 2 vCPU / 8 GiB."
+  default     = ["t3.medium"]
+  description = "EC2 types for managed node group. t3.medium = 2 vCPU / 4 GiB."
 }
 
 variable "node_desired_size" {
   type    = number
-  default = 2
+  default = 1
 }
 
 variable "node_min_size" {
   type    = number
-  default = 2
+  default = 1
 }
 
 variable "node_max_size" {
@@ -46,7 +46,7 @@ variable "node_max_size" {
 
 variable "node_disk_size" {
   type        = number
-  default     = 30
+  default     = 20
   description = "EBS volume size per node (GB)."
 }
 
@@ -65,7 +65,7 @@ variable "vpc_state_path" {
 variable "tags" {
   type = map(string)
   default = {
-    ManagedBy = "Terraform"
+    ManagedBy = "Anshul Bharadwaj"
     Project   = "Healthcare"
   }
 }
